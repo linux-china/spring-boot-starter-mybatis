@@ -16,9 +16,9 @@
 
 package org.mvnsearch.spring.boot.mybatis;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.ibatis.plugin.Interceptor;
 import org.apache.ibatis.session.SqlSessionFactory;
+import org.mvnsearch.spring.boot.mybatis.metrics.MetricsInterceptor;
 import org.mybatis.spring.SqlSessionFactoryBean;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,7 +31,6 @@ import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.util.Assert;
@@ -54,16 +53,17 @@ import javax.sql.DataSource;
  */
 @SuppressWarnings("SpringJavaAutowiringInspection")
 @Configuration
-@ConditionalOnClass({ SqlSessionFactory.class, SqlSessionFactoryBean.class })
+@ConditionalOnClass({SqlSessionFactory.class, SqlSessionFactoryBean.class})
 @ConditionalOnBean(DataSource.class)
 @EnableConfigurationProperties(MybatisProperties.class)
 @AutoConfigureAfter(DataSourceAutoConfiguration.class)
 public class MybatisAutoConfiguration {
-    private static Log log = LogFactory.getLog(MybatisAutoConfiguration.class);
     @Autowired
     private MybatisProperties properties;
+    @Autowired(required = false)
+    private Interceptor[] interceptors;
     @Autowired
-    private ResourceLoader resourceLoader = new DefaultResourceLoader();
+    private ResourceLoader resourceLoader;
 
     @PostConstruct
     public void checkConfigFileExists() {
@@ -80,7 +80,11 @@ public class MybatisAutoConfiguration {
     public SqlSessionFactory sqlSessionFactory(DataSource dataSource) throws Exception {
         SqlSessionFactoryBean factory = new SqlSessionFactoryBean();
         factory.setDataSource(dataSource);
+        factory.setVfs(SpringBootVFS.class);
         factory.setConfigLocation(this.resourceLoader.getResource(this.properties.getConfig()));
+        if (interceptors != null) {
+            factory.setPlugins(this.interceptors);
+        }
         return factory.getObject();
     }
 
@@ -91,10 +95,8 @@ public class MybatisAutoConfiguration {
     }
 
     @Bean
-    public MetricsInterceptor mybatisMetricsInterceptor(SqlSessionFactory sqlSessionFactory) {
-        MetricsInterceptor interceptor = new MetricsInterceptor();
-        sqlSessionFactory.getConfiguration().addInterceptor(interceptor);
-        return interceptor;
+    public MetricsInterceptor mybatisMetricsInterceptor() {
+        return new MetricsInterceptor(properties);
     }
 
     @Bean

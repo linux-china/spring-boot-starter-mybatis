@@ -1,5 +1,6 @@
 package org.mvnsearch.spring.boot.mybatis;
 
+import com.codahale.metrics.Metric;
 import org.apache.ibatis.executor.keygen.KeyGenerator;
 import org.apache.ibatis.executor.keygen.NoKeyGenerator;
 import org.apache.ibatis.mapping.MappedStatement;
@@ -8,6 +9,7 @@ import org.apache.ibatis.mapping.ResultMap;
 import org.apache.ibatis.scripting.xmltags.DynamicSqlSource;
 import org.apache.ibatis.session.Configuration;
 import org.apache.ibatis.session.SqlSessionFactory;
+import org.mvnsearch.spring.boot.mybatis.metrics.MetricsInterceptor;
 import org.springframework.boot.actuate.endpoint.AbstractEndpoint;
 
 import javax.annotation.PostConstruct;
@@ -31,15 +33,59 @@ public class MybatisEndpoint extends AbstractEndpoint<Map<String, Object>> {
         this.interceptor = interceptor;
     }
 
-    @Override
+    public String getName() {
+        return "Mybatis";
+    }
+
+    public String getVersion() {
+        return "1.0.1";
+    }
+
+    public List<String> getAuthors() {
+        return Collections.singletonList("leijuan <jacky.chenlb@alibaba-inc.com>");
+    }
+
+    public String getDocs() {
+        return "http://blog.mybatis.org/p/products.html";
+    }
+
+    public String getScm() {
+        return "http://gitlab.alibaba-inc.com/spring-boot/spring-boot-starter-mybatis";
+    }
+
+    public Optional<Object> getConfig() {
+        return Optional.of(properties);
+    }
+
     public Map<String, Object> invoke() {
         Map<String, Object> info = new HashMap<>();
         info.put("config", properties.getConfig());
         info.put("statements", statements);
-        Map<String, Object> metrics = new HashMap<>();
-        interceptor.getSentences().forEach((key, atomicLong) -> metrics.put(key, atomicLong.get()));
-        info.put("metrics", metrics);
+        info.put("metrics", interceptor.getMetrics());
         return info;
+    }
+
+    @SuppressWarnings("unchecked")
+    public Optional<Map<String, Object>> getMetrics() {
+        Map<String, Object> allMetrics = new HashMap<>();
+        Map<String, Metric> temp = interceptor.getMetrics().getMetrics();
+        for (Map.Entry<String, Metric> entry : temp.entrySet()) {
+            String metricName = entry.getKey();
+            String prefix = metricName.substring(0, metricName.lastIndexOf("."));
+            String name = metricName.substring(metricName.lastIndexOf(".") + 1);
+            if (!allMetrics.containsKey(prefix)) {
+                allMetrics.put(prefix, new HashMap<>());
+            }
+            ((Map<String, Object>) allMetrics.get(prefix)).put(name, entry.getValue());
+        }
+        return Optional.of(allMetrics);
+    }
+
+    public Optional<Map<String, Object>> getRuntime() {
+        Map<String, Object> runtime = new HashMap<>();
+        //initStatements();
+        runtime.put("statements", statements);
+        return Optional.of(runtime);
     }
 
     @PostConstruct
@@ -81,7 +127,10 @@ public class MybatisEndpoint extends AbstractEndpoint<Map<String, Object>> {
                         }
                     }
                 }
-                statement.put("sql", mappedStatement.getBoundSql(null).getSql());
+                try {
+                    statement.put("sql", mappedStatement.getBoundSql(new HashMap<>()).getSql());
+                } catch (Exception ignore) {
+                }
                 if (mappedStatement.getSqlSource() instanceof DynamicSqlSource) {
                     statement.put("dynamic", true);
                 }
